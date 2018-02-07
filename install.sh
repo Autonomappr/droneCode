@@ -24,6 +24,7 @@ catkin_make
 source devel/setup.bash
 
 # Installing ArduPilot
+pip install --upgrade pip
 cd ~
 git clone git://github.com/ArduPilot/ardupilot.git
 cd ardupilot
@@ -38,4 +39,4 @@ echo 'export PATH=/usr/lib/ccache:$PATH' >> ~/.bashrc
 
 . ~/.bashrc
 
-cd ardupilot/ArduPlane
+cd ~/ardupilot/ArduCopter
