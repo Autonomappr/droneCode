@@ -15,3 +15,12 @@ source /opt/ros/kinetic/setup.bash
 echo "source /opt/ros/kinetic/setup.zsh" >> ~/.zshrc
 source ~/.zshrc
 sudo apt-get install python-rosinstall python-rosinstall-generator python-wstool build-essential
+
+# Setting up workspace
+source /opt/ros/kinetic/setup.bash
+mkdir -p ~/catkin_ws/src
+cd ~/catkin_ws/
+catkin_make
+source devel/setup.bash
+
+sudo apt-get install ros-kinetic-ros-tutorials
