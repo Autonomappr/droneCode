@@ -23,4 +23,19 @@ cd ~/catkin_ws/
 catkin_make
 source devel/setup.bash
 
-sudo apt-get install ros-kinetic-ros-tutorials
+# Installing ArduPilot
+cd ~
+git clone git://github.com/ArduPilot/ardupilot.git
+cd ardupilot
+git submodule update --init --recursive
+
+sudo apt-get install python-matplotlib python-serial python-wxgtk3.0 python-wxtools python-lxml
+sudo apt-get install python-scipy python-opencv ccache gawk git python-pip python-pexpect
+sudo pip install future pymavlink MAVProxy
+
+echo 'export PATH=$PATH:$HOME/ardupilot/Tools/autotest' >> ~/.bashrc
+echo 'export PATH=/usr/lib/ccache:$PATH' >> ~/.bashrc
+
+. ~/.bashrc
+
+cd ardupilot/ArduPlane
