@@ -5,7 +5,7 @@ export pid=$!
 sleep 100
 kill -2  $pid
 
-sim_vehicle.py --console --map --aircraft test
+sim_vehicle.py --console --map --aircraft test -L Waterloo
 sleep 20
 wp load ../Tools/autotest/ArduPlane-Missions/CMAC-toff-loop.txt
 arm throttle
