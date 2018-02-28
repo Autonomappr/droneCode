@@ -192,6 +192,16 @@ class MapManager(object):
 		'''
 		return [self.lat_lon_to_x_y(*tuple_inst) for tuple_inst in self.plotted_points]
 
+	#params explained <entry value="16" name="MAV_CMD_NAV_WAYPOINT">
+	#<description>Navigate to MISSION.</description>
+	# <param index="1">Hold time in decimal seconds. (ignored by fixed wing, time to stay at MISSION for rotary wing)</param>
+	# <param index="2">Acceptance radius in meters (if the sphere with this radius is hit, the MISSION counts as reached)</param>
+	# <param index="3">0 to pass through the WP, if > 0 radius in meters to pass by WP. Positive value for clockwise orbit, negative value for counter-clockwise orbit. Allows trajectory control.</param>
+	# <param index="4">Desired yaw angle at MISSION (rotary wing)</param>
+	# <param index="5">Latitude</param>
+	# <param index="6">Longitude</param>
+	# <param index="7">Altitude</param>
+
 	def save_path(self):
 		
 		param1 = "0";
@@ -204,7 +214,8 @@ class MapManager(object):
 		coord = "0"
 		command = "16"
 
-		f = open("path.txt", "w+")
+		filename = "hickory_mission.txt"
+		f = open("missions/"+filename, "w+")
 		f.write("QGC\tWPL\t110\n")
 		count = 0
 		for point in self.plotted_points:
@@ -216,6 +227,7 @@ class MapManager(object):
 				altitude = "40"
 			waypoint = "\t".join([str(count), current_waypoint, coord, command, param1, param2, param3, param4, str(point[0]), str(point[1]), altitude, autocontinue])
 			f.write(waypoint + "\n")
+			count = count + 1
 		f.close()
 
 def main():
