@@ -216,7 +216,7 @@ class MapManager(object):
 
 		filename = "hickory_mission.txt"
 		f = open("missions/"+filename, "w+")
-		f.write("QGC\tWPL\t110\n")
+		f.write("QGC WPL 110\n")
 		count = 0
 		for point in self.plotted_points:
 			if count == 0:

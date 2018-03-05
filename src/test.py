@@ -2,21 +2,20 @@ print "Start simulator (SITL)"
 import dronekit_sitl
 import sys
 import time
+import os
+import math
+from pymavlink import mavutil
 
 
-#Set up option parsing to get connection string
 import argparse  
-
-# Import DroneKit-Python
-from dronekit import connect, VehicleMode
+from dronekit import connect, VehicleMode, Command, LocationGlobalRelative, LocationGlobal
+# from pudb import set_trace; set_trace()
 
 # [(43.47917960688476, -80.52704943477717), (43.47875045344238, -80.52704943477717), (43.4783213, -80.52704943477717), (43.477892146557615, -80.52704943477717), (43.47746299311523, -80.52704943477717), (43.47746299311523, -80.52662028133479), (43.477892146557615, -80.52662028133479), (43.4783213, -80.52662028133479), (43.47875045344238, -80.52662028133479), (43.47917960688476, -80.52662028133479), (43.47917960688476, -80.5261911278924), (43.47875045344238, -80.5261911278924), (43.4783213, -80.5261911278924), (43.477892146557615, -80.5261911278924), (43.47746299311523, -80.5261911278924), (43.47746299311523, -80.52576197445002), (43.477892146557615, -80.52576197445002), (43.4783213, -80.52576197445002), (43.47875045344238, -80.52576197445002), (43.47917960688476, -80.52576197445002), (43.47917960688476, -80.52533282100764), (43.47875045344238, -80.52533282100764), (43.4783213, -80.52533282100764), (43.477892146557615, -80.52533282100764), (43.47746299311523, -80.52533282100764)]
-
 
 """
 CALL BACKS
 """
-
 #Callback to print the location in global frames. 'value' is the updated value
 def location_callback(self, attr_name, value):
  print "Location (Global): ", value
@@ -29,7 +28,6 @@ def wildcard_callback(self, attr_name, value):
 """
 FUNCTIONS
 """
-
 def get_connection():
     parser = argparse.ArgumentParser(description='Generates max, min and current interval between message sent and ack recieved. Will start and connect to SITL if no connection string specified.')
     parser.add_argument('--connect', 
@@ -37,10 +35,11 @@ def get_connection():
     args = parser.parse_args()
 
     connection_string=args.connect
+    sitl = None
 
-    return connection_string
+    return connection_string, sitl
 
-def readmission(aFileName):
+def readmission(aFileName, vehicle):
     """
     Load a mission from a file into a list.
 
@@ -72,14 +71,14 @@ def readmission(aFileName):
                 missionlist.append(cmd)
     return missionlist
 
-def upload_mission(aFileName):
+def upload_mission(aFileName, vehicle):
     """
     Upload a mission from a file.
     """
     #Read mission from file
-    missionlist = readmission(aFileName)
+    missionlist = readmission(aFileName, vehicle)
 
-    print "\nUpload mission from a file: %s" % import_mission_filename
+    print "\nUpload mission from a file: %s" % aFileName
     #Clear existing mission from vehicle
     print ' Clear mission'
     cmds = vehicle.commands
@@ -90,8 +89,7 @@ def upload_mission(aFileName):
     print ' Upload mission'
     vehicle.commands.upload()
 
-
-def download_mission():
+def download_mission(vehicle):
     """
     Downloads the current mission and returns it in a list.
     It is used in save_mission() to get the file information to save.
@@ -104,11 +102,11 @@ def download_mission():
         missionlist.append(cmd)
     return missionlist
 
-def save_mission(aFileName):
+def save_mission(aFileName, vehicle):
     """
     Save a mission in the Waypoint file format (http://qgroundcontrol.org/mavlink/waypoint_protocol#waypoint_file_format).
     """
-    missionlist = download_mission()
+    missionlist = download_mission(vehicle)
     output='QGC WPL 110\n'
     for cmd in missionlist:
         commandline="%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % (cmd.seq,cmd.current,cmd.frame,cmd.command,cmd.param1,cmd.param2,cmd.param3,cmd.param4,cmd.x,cmd.y,cmd.z,cmd.autocontinue)
@@ -116,6 +114,55 @@ def save_mission(aFileName):
     with open("mission/"+aFileName, 'w') as file_:
         file_.write(output)
 
+def get_location_metres(original_location, dNorth, dEast):
+    """
+    Returns a LocationGlobal object containing the latitude/longitude `dNorth` and `dEast` metres from the 
+    specified `original_location`. The returned Location has the same `alt` value
+    as `original_location`.
+
+    The function is useful when you want to move the vehicle around specifying locations relative to 
+    the current vehicle position.
+    The algorithm is relatively accurate over small distances (10m within 1km) except close to the poles.
+    For more information see:
+    http://gis.stackexchange.com/questions/2951/algorithm-for-offsetting-a-latitude-longitude-by-some-amount-of-meters
+    """
+    earth_radius=6378137.0 #Radius of "spherical" earth
+    #Coordinate offsets in radians
+    dLat = dNorth/earth_radius
+    dLon = dEast/(earth_radius*math.cos(math.pi*original_location.lat/180))
+
+    #New position in decimal degrees
+    newlat = original_location.lat + (dLat * 180/math.pi)
+    newlon = original_location.lon + (dLon * 180/math.pi)
+    return LocationGlobal(newlat, newlon,original_location.alt)
+
+def get_distance_metres(aLocation1, aLocation2):
+    """
+    Returns the ground distance in metres between two LocationGlobal objects.
+
+    This method is an approximation, and will not be accurate over large distances and close to the 
+    earth's poles. It comes from the ArduPilot test code: 
+    https://github.com/diydrones/ardupilot/blob/master/Tools/autotest/common.py
+    """
+    dlat = aLocation2.lat - aLocation1.lat
+    dlong = aLocation2.lon - aLocation1.lon
+    return math.sqrt((dlat*dlat) + (dlong*dlong)) * 1.113195e5
+
+def distance_to_current_waypoint(vehicle):
+    """
+    Gets distance in metres to the current waypoint. 
+    It returns None for the first waypoint (Home location).
+    """
+    nextwaypoint = vehicle.commands.next
+    if nextwaypoint==0:
+        return None
+    missionitem=vehicle.commands[nextwaypoint-1] #commands are zero indexed
+    lat = missionitem.x
+    lon = missionitem.y
+    alt = missionitem.z
+    targetWaypointLocation = LocationGlobalRelative(lat,lon,alt)
+    distancetopoint = get_distance_metres(vehicle.location.global_frame, targetWaypointLocation)
+    return distancetopoint
 
 """
 CONTROLS
@@ -128,7 +175,7 @@ def arm_and_takeoff(aTargetAltitude, vehicle):
 
     print "Basic pre-arm checks"
 
-    if v.mode.name == "INITIALISING":
+    if vehicle.mode.name == "INITIALISING":
         print "Waiting for vehicle to initialise"
         time.sleep(1)
     while vehicle.gps_0.fix_type < 2:
@@ -164,45 +211,54 @@ def arm_and_takeoff(aTargetAltitude, vehicle):
         time.sleep(1)
 
 
-
-
-
 """
 ATTRIBUBTE DISPLAY
 """
 def get_attributes(vehicle):
-    # Get some vehicle attributes (state)
-    print "Get some vehicle attribute values:"
+    # Get all vehicle attributes (state)
+    print "\nGet all vehicle attribute values:"
+    print " Autopilot Firmware version: %s" % vehicle.version
+    print "   Major version number: %s" % vehicle.version.major
+    print "   Minor version number: %s" % vehicle.version.minor
+    print "   Patch version number: %s" % vehicle.version.patch
+    print "   Release type: %s" % vehicle.version.release_type()
+    print "   Release version: %s" % vehicle.version.release_version()
+    print "   Stable release?: %s" % vehicle.version.is_stable()
+    print " Autopilot capabilities"
+    print "   Supports MISSION_FLOAT message type: %s" % vehicle.capabilities.mission_float
+    print "   Supports PARAM_FLOAT message type: %s" % vehicle.capabilities.param_float
+    print "   Supports MISSION_INT message type: %s" % vehicle.capabilities.mission_int
+    print "   Supports COMMAND_INT message type: %s" % vehicle.capabilities.command_int
+    print "   Supports PARAM_UNION message type: %s" % vehicle.capabilities.param_union
+    print "   Supports ftp for file transfers: %s" % vehicle.capabilities.ftp
+    print "   Supports commanding attitude offboard: %s" % vehicle.capabilities.set_attitude_target
+    print "   Supports commanding position and velocity targets in local NED frame: %s" % vehicle.capabilities.set_attitude_target_local_ned
+    print "   Supports set position + velocity targets in global scaled integers: %s" % vehicle.capabilities.set_altitude_target_global_int
+    print "   Supports terrain protocol / data handling: %s" % vehicle.capabilities.terrain
+    print "   Supports direct actuator control: %s" % vehicle.capabilities.set_actuator_target
+    print "   Supports the flight termination command: %s" % vehicle.capabilities.flight_termination
+    print "   Supports mission_float message type: %s" % vehicle.capabilities.mission_float
+    print "   Supports onboard compass calibration: %s" % vehicle.capabilities.compass_calibration
+    print " Global Location: %s" % vehicle.location.global_frame
+    print " Global Location (relative altitude): %s" % vehicle.location.global_relative_frame
+    print " Local Location: %s" % vehicle.location.local_frame
+    print " Attitude: %s" % vehicle.attitude
+    print " Velocity: %s" % vehicle.velocity
     print " GPS: %s" % vehicle.gps_0
+    print " Gimbal status: %s" % vehicle.gimbal
     print " Battery: %s" % vehicle.battery
+    print " EKF OK?: %s" % vehicle.ekf_ok
     print " Last Heartbeat: %s" % vehicle.last_heartbeat
+    print " Rangefinder: %s" % vehicle.rangefinder
+    print " Rangefinder distance: %s" % vehicle.rangefinder.distance
+    print " Rangefinder voltage: %s" % vehicle.rangefinder.voltage
+    print " Heading: %s" % vehicle.heading
     print " Is Armable?: %s" % vehicle.is_armable
     print " System status: %s" % vehicle.system_status.state
+    print " Groundspeed: %s" % vehicle.groundspeed    # settable
+    print " Airspeed: %s" % vehicle.airspeed    # settable
     print " Mode: %s" % vehicle.mode.name    # settable
-
-    print "Autopilot Firmware version: %s" % vehicle.version
-    # print "Autopilot capabilities (supports ftp): %s" % vehicle.capabilities.ftp
-    print "Global Location: %s" % vehicle.location.global_frame
-    print "Global Location (relative altitude): %s" % vehicle.location.global_relative_frame
-    print "Local Location: %s" % vehicle.location.local_frame    #NED
-    print "Attitude: %s" % vehicle.attitude
-    print "Velocity: %s" % vehicle.velocity
-    print "GPS: %s" % vehicle.gps_0
-    print "Groundspeed: %s" % vehicle.groundspeed
-    print "Airspeed: %s" % vehicle.airspeed
-    print "Gimbal status: %s" % vehicle.gimbal
-    print "Battery: %s" % vehicle.battery
-    print "EKF OK?: %s" % vehicle.ekf_ok
-    print "Last Heartbeat: %s" % vehicle.last_heartbeat
-    print "Rangefinder: %s" % vehicle.rangefinder
-    print "Rangefinder distance: %s" % vehicle.rangefinder.distance
-    print "Rangefinder voltage: %s" % vehicle.rangefinder.voltage
-    print "Heading: %s" % vehicle.heading
-    print "Is Armable?: %s" % vehicle.is_armable
-    print "System status: %s" % vehicle.system_status.state
-    print "Mode: %s" % vehicle.mode.name    # settable
-    print "Armed: %s" % vehicle.armed    # settable
-
+    print " Armed: %s" % vehicle.armed    # settable
 
     # Get Vehicle Home location - will be `None` until first set by autopilot
     while not vehicle.home_location:
@@ -216,10 +272,7 @@ def get_attributes(vehicle):
     print "\n Home location: %s" % vehicle.home_location
 
 
-
-# Add a callback `location_callback` for the `global_frame` attribute.
-# vehicle.add_attribute_listener('location.global_frame', location_callback)
-
+    
 # Wait 2s so callback can be notified before the observer is removed
 # time.sleep(2)
 
@@ -238,11 +291,9 @@ def get_attributes(vehicle):
 # vehicle.remove_attribute_listener('*', wildcard_callback)
 
 
-
-
 def main():
 
-    connection_string = get_connection()
+    connection_string, sitl = get_connection()
 
     #Start SITL if no connection string specified
     if not connection_string:
@@ -251,24 +302,71 @@ def main():
         connection_string = sitl.connection_string()
 
     # Connect to the Vehicle.
+#   Set `wait_ready=True` to ensure default attributes are populated before `connect()` returns.
     print("Connecting to vehicle on: %s" % (connection_string,))
     vehicle = connect(connection_string, wait_ready=True)
+    vehicle.wait_ready('autopilot_version')
 
     get_attributes(vehicle)
 
-    # print "\n TAKE OFF" 
-    # arm_and_takeoff(20, vehicle)
+    # Add a callback `location_callback` for the `global_frame` attribute.
+    vehicle.add_attribute_listener('location.global_frame', location_callback)
 
-    upload_mission("mission/hickory_mission.txt")
-    
+    print "\nSet Vehicle.mode = GUIDED (currently: %s)" % vehicle.mode.name 
+    vehicle.mode = VehicleMode("GUIDED")
+    while not vehicle.mode.name=='GUIDED':  #Wait until mode has changed
+        print " Waiting for mode change ..."
+        time.sleep(1)
 
 
-    # Close vehicle object before exiting script
+    upload_mission("missions/hickory_mission.txt", vehicle)
+    arm_and_takeoff(20, vehicle)
+
+    print "Starting mission"
+    # Reset mission set to first (0) waypoint
+    vehicle.commands.next=0
+
+    print "Set default/target groundspeed to 1"
+    vehicle.groundspeed = 20
+    vehicle.mode = VehicleMode("AUTO")
+
+    # os.system("path_planning.py 1 8 Hickory St West Waterloo Ontario Canada")
+
+
+    # #Create a message listener using the decorator.
+    # @vehicle.on_message('RANGEFINDER')
+    # def listener(self, name, message):
+    #     print message
+
+    # Monitor mission. 
+    # Demonstrates getting and setting the command number 
+    # Uses distance_to_current_waypoint(), a convenience function for finding the 
+    #   distance to the next waypoint.
+
+    while True:
+        nextwaypoint=vehicle.commands.next
+        print 'Distance to waypoint (%s): %s' % (nextwaypoint, distance_to_current_waypoint(vehicle))
+      
+        # if nextwaypoint==3: #Skip to next waypoint
+        #     print 'Skipping to Waypoint 5 when reach waypoint 3'
+        #     vehicle.commands.next = 5
+        if nextwaypoint==25: #Dummy waypoint - as soon as we reach waypoint 4 this is true and we exit.
+            print "Exit 'standard' mission when start heading to final waypoint (25)"
+            break;
+        time.sleep(1)
+
+    print 'Return to launch'
+    vehicle.mode = VehicleMode("RTL")
+
+
+    #Close vehicle object before exiting script
+    print "Close vehicle object"
     vehicle.close()
 
 
-    # Shut down simulator
-    if not connection_string:
+
+    # # Shut down simulator
+    if not sitl == None:
         sitl.stop()
     print("Completed")
 
