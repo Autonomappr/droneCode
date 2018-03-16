@@ -210,10 +210,10 @@ class MapManager(object):
 		for point in self.plotted_points:
 			if count == 0:
 				current_waypoint = "1"
-				altitude = "0"
+				# altitude = "40"
 			else:
 				current_waypoint = "0"
-				altitude = "40"
+				# altitude = "40"
 			waypoint = "\t".join([str(count), current_waypoint, coord, command, param1, param2, param3, param4, str(point[0]), str(point[1]), altitude, autocontinue])
 			f.write(waypoint + "\n")
 			count = count + 1
