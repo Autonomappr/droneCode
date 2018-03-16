@@ -45,29 +45,29 @@ class Path:
 		self.max_y = max(self.corners,key=lambda item:item[1])[1]
 		self.range_x = self.max_x - self.min_x
 		self.range_y = self.max_y - self.min_y
-		self.rows = math.ceil(self.range_x/self.resolution)
-		self.cols = math.ceil(self.range_y/self.resolution)
-		self.resolution_x = self.range_x/self.rows
-		self.resolution_y = self.range_y/self.cols
-		print "X Range: %f" % self.range_x
-		print "Y Range: %f" % self.range_y
+		# self.rows = math.ceil(self.range_x/self.resolution)
+		# self.cols = math.ceil(self.range_y/self.resolution)
+		# self.resolution_x = self.range_x/self.rows
+		# self.resolution_y = self.range_y/self.cols
+		# print "X Range: %f" % self.range_x
+		# print "Y Range: %f" % self.range_y
 
 
 	def add_vertices(self):
-		self.vertices_vertical = math.ceil(self.range_x/(2*self.radius))
-		self.vertices_horizontal = math.ceil(self.range_y/(2*self.radius))
-		print "Vertical: %f" % self.vertices_vertical
-		print "Horizontal: %f" % self.vertices_horizontal
+		self.rows = math.ceil(self.range_x/(2*self.radius))
+		self.cols = math.ceil(self.range_y/(2*self.radius))
+		print "Vertical: %f" % self.rows
+		print "Horizontal: %f" % self.cols
 
 		id = 0
-		for i in range(int(self.vertices_vertical)):
-			for j in range(int(self.vertices_horizontal)):
+		for i in range(int(self.rows)):
+			for j in range(int(self.cols)):
 				vertex = Vertex()
-				vertex.x = self.min_x + (1 + 2*i)*self.range_x/(2*self.vertices_vertical)
+				vertex.x = self.min_x + (1 + 2*i)*self.range_x/(2*self.rows)
 				if i%2 == 0:
-					vertex.y = self.min_y + (1 + 2*j)*self.range_y/(2*self.vertices_horizontal)
+					vertex.y = self.min_y + (1 + 2*j)*self.range_y/(2*self.cols)
 				else:
-					vertex.y = self.min_y + (2*self.vertices_horizontal - 1 - 2*j)*self.range_y/(2*self.vertices_horizontal)
+					vertex.y = self.min_y + (2*self.cols - 1 - 2*j)*self.range_y/(2*self.cols)
 
 				print "Node: (%f, %f)" % (vertex.x, vertex.y)
 				vertex.id = id
@@ -192,16 +192,6 @@ class MapManager(object):
 		'''
 		return [self.lat_lon_to_x_y(*tuple_inst) for tuple_inst in self.plotted_points]
 
-	#params explained <entry value="16" name="MAV_CMD_NAV_WAYPOINT">
-	#<description>Navigate to MISSION.</description>
-	# <param index="1">Hold time in decimal seconds. (ignored by fixed wing, time to stay at MISSION for rotary wing)</param>
-	# <param index="2">Acceptance radius in meters (if the sphere with this radius is hit, the MISSION counts as reached)</param>
-	# <param index="3">0 to pass through the WP, if > 0 radius in meters to pass by WP. Positive value for clockwise orbit, negative value for counter-clockwise orbit. Allows trajectory control.</param>
-	# <param index="4">Desired yaw angle at MISSION (rotary wing)</param>
-	# <param index="5">Latitude</param>
-	# <param index="6">Longitude</param>
-	# <param index="7">Altitude</param>
-
 	def save_path(self):
 		
 		param1 = "0";
@@ -214,8 +204,7 @@ class MapManager(object):
 		coord = "0"
 		command = "16"
 
-		filename = "hickory_mission.txt"
-		f = open("missions/"+filename, "w+")
+		f = open("path.txt", "w+")
 		f.write("QGC WPL 110\n")
 		count = 0
 		for point in self.plotted_points:
@@ -239,15 +228,23 @@ def main():
 		print "Error: Wrong Mode Entered"
 		return 0
 
-	address = raw_input("Enter the address: ")
-	print "\n"
-	location = geolocator.geocode(address)
+	is_lat_lon = raw_input("Are you entering (lat,lon) coordinates? [n/Y] ").upper()
+	if is_lat_lon == "N" or is_lat_lon == "NO":
+		address = raw_input("Enter the address: ")
+		print "\n"
+		location = geolocator.geocode(address)
 
-	if not location:
-		print "Incorrect Address"
-		return 0
+		if not location:
+			print "Incorrect Address"
+			return 0
+		latitude = location.latitude
+		longitude = location.longitude
+	else:
+		latitude = float(raw_input("Enter latitude: "))
+		longitude = float(raw_input("Enter longitude: "))
 
-	map = MapManager(HEIGHT, ZOOM, location.latitude, location.longitude, bool(mode))
+
+	map = MapManager(HEIGHT, ZOOM, latitude, longitude, bool(mode))
 	# BGR Red
 	UNIVERSAL_COLOR = np.array([0,0,255])
 	CENTER_COLOR = np.array([255, 0, 0])
