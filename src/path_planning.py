@@ -217,6 +217,15 @@ class MapManager(object):
 			waypoint = "\t".join([str(count), current_waypoint, coord, command, param1, param2, param3, param4, str(point[0]), str(point[1]), altitude, autocontinue])
 			f.write(waypoint + "\n")
 			count = count + 1
+
+		# Slowly drop the altitude
+		altitudes = [20,10,5,2]
+		point = self.plotted_points[-1]
+		for a in altitudes:
+			altitude = str(a)
+			waypoint = "\t".join([str(count), current_waypoint, coord, command, param1, param2, param3, param4, str(point[0]), str(point[1]), altitude, autocontinue])
+			f.write(waypoint + "\n")
+			count = count + 1
 		f.close()
 
 def main():
